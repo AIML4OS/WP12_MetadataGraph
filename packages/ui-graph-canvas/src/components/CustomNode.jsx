@@ -12,6 +12,7 @@ import './CustomNode.css';
  * - nodeType: Type of node (Actor, Initiative, etc.)
  * - color: Node color
  * - isHighlighted: Whether node is highlighted
+ * - severity: Change-impact severity ('breaking' | 'annotation-only' | 'source'), drives styling
  * - description: Full description for tooltip
  * - communities: Array of community names
  * - onExpand: Callback when expand button clicked
@@ -37,10 +38,12 @@ function CustomNode({ data, id, selected }) {
     }
   };
 
+  const severityClass = data.severity ? `severity-${data.severity}` : '';
+
   return (
     <div
       ref={nodeRef}
-      className={`graph-custom-node ${data.isHighlighted ? 'highlighted' : ''} ${selected ? 'selected' : ''}`}
+      className={`graph-custom-node ${data.isHighlighted ? 'highlighted' : ''} ${selected ? 'selected' : ''} ${severityClass}`}
       style={{ borderColor: data.color }}
       onMouseEnter={() => {
         setShowButtons(true);
@@ -69,6 +72,11 @@ function CustomNode({ data, id, selected }) {
         <div className="graph-node-label">{data.label}</div>
         {data.summary && (
           <div className="graph-node-summary">{data.summary}</div>
+        )}
+        {data.severity && data.severity !== 'source' && (
+          <div className={`graph-node-severity-badge severity-badge-${data.severity}`}>
+            {data.severity === 'breaking' ? 'Breaking change' : 'Annotation only'}
+          </div>
         )}
       </div>
 

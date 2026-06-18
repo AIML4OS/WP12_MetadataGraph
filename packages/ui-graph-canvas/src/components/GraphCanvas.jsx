@@ -73,6 +73,9 @@ function GraphCanvasInner({
   onExpand,
   onEdit,
   onDelete,
+  onExploreLineage,
+  onTriggerVersionChange,
+  affectedSeverity = {},
   onHide,
   onDeleteMultiple,
   onHideMultiple,
@@ -196,6 +199,7 @@ function GraphCanvasInner({
         summary: node.summary || node.description?.slice(0, 100),
         nodeType: node.type,
         color: getNodeColor(node.type),
+        severity: affectedSeverity[node.id] || null,
         onExpand: onExpand ? () => onExpand(node.id, node) : null,
         onEdit: onEdit ? () => onEdit(node.id, node) : null,
       },
@@ -211,7 +215,7 @@ function GraphCanvasInner({
     }
 
     return applyLayout(nodesWithoutPosition, reactFlowEdges, layoutType);
-  }, [nodesToRender, reactFlowEdges, layoutType, onExpand, onEdit]);
+  }, [nodesToRender, reactFlowEdges, layoutType, onExpand, onEdit, affectedSeverity]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(reactFlowNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(reactFlowEdges);
@@ -849,6 +853,32 @@ function GraphCanvasInner({
                 <div className="context-menu-separator"></div>
               </>
             );
+          })()}
+          {(() => {
+            const nodeType = nodeContextMenu.node.data?.nodeType || nodeContextMenu.node.data?.type;
+            const lineageItems = [];
+            if (onExploreLineage && nodeType === 'DataSet') {
+              lineageItems.push(
+                <button key="lineage" onClick={() => {
+                  onExploreLineage(nodeContextMenu.node.id, nodeContextMenu.node.data);
+                  setNodeContextMenu(null);
+                }}>
+                  🧬 Explore lineage
+                </button>
+              );
+            }
+            if (onTriggerVersionChange && nodeType === 'CodeList') {
+              lineageItems.push(
+                <button key="impact" onClick={() => {
+                  onTriggerVersionChange(nodeContextMenu.node.id, nodeContextMenu.node.data);
+                  setNodeContextMenu(null);
+                }}>
+                  ⚠️ Trigger version change
+                </button>
+              );
+            }
+            if (lineageItems.length === 0) return null;
+            return (<>{lineageItems}<div className="context-menu-separator"></div></>);
           })()}
           {onEdit && (
             <button onClick={() => {

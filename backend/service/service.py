@@ -500,6 +500,153 @@ class GraphService:
             "depth": depth
         }
 
+    # ==================== Lineage & Change Impact (US-03) ====================
+
+    def get_lineage(self, node_id: str, depth: int = 4) -> Dict[str, Any]:
+        """
+        Get the full lineage subgraph for a selected data set.
+
+        Traces the Input -> Process Step -> Output provenance chain plus the data
+        set's structure, variables and code lists, on the same graph structure.
+
+        Args:
+            node_id: ID of the data set to explain
+            depth: maximum traversal depth in each direction
+
+        Returns:
+            Dict with the lineage nodes/edges, or an error.
+        """
+        decision = self._evaluate_graph_access(action=GRAPH_ACTION_READ, target="get_lineage")
+        if not decision.allowed:
+            return self._build_access_denied_result(
+                action=GRAPH_ACTION_READ, target="get_lineage", decision=decision,
+            )
+
+        node = self._storage.get_node(node_id)
+        if not self._is_node_visible(node, decision.graph_access):
+            return {"success": False, "error": f"Node with ID {node_id} not found"}
+
+        result = self._storage.get_lineage_subgraph(node_id, depth=depth)
+        visible_nodes, visible_edges = self._filter_nodes_and_edges(
+            nodes=result['nodes'], edges=result['edges'], graph_access=decision.graph_access,
+        )
+        return {
+            "success": True,
+            "root_id": node_id,
+            "nodes": serialize_nodes(visible_nodes),
+            "edges": serialize_edges(visible_edges),
+            "total_nodes": len(visible_nodes),
+            "total_edges": len(visible_edges),
+            "depth": depth,
+        }
+
+    def assess_change_impact(
+        self,
+        node_id: str,
+        change_type: str = "breaking",
+        depth: int = 4,
+        new_version: Optional[str] = None,
+        record_change: bool = True,
+        event_origin: Optional[str] = None,
+        event_session_id: Optional[str] = None,
+        event_correlation_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Assess the downstream impact of a classification version change.
+
+        Traverses the graph in reverse from the changed classification/code list and
+        classifies every dependent artefact by impact severity (breaking vs
+        annotation-only) using the deterministic rules in backend.service.impact.
+
+        Args:
+            node_id: ID of the changed classification / code list node
+            change_type: "breaking" or "annotation"
+            depth: maximum reverse-traversal depth
+            new_version: optional new version label to record on the node
+            record_change: when True, record the simulated change on the node metadata
+                (audited via the event-context path)
+
+        Returns:
+            Dict with the impact result (affected list + severity groups) plus the
+            reverse-impact subgraph nodes/edges for visualization.
+        """
+        from . import impact as impact_engine
+
+        decision = self._evaluate_graph_access(action=GRAPH_ACTION_READ, target="assess_change_impact")
+        if not decision.allowed:
+            return self._build_access_denied_result(
+                action=GRAPH_ACTION_READ, target="assess_change_impact", decision=decision,
+            )
+
+        node = self._storage.get_node(node_id)
+        if not self._is_node_visible(node, decision.graph_access):
+            return {"success": False, "error": f"Node with ID {node_id} not found"}
+
+        version_before = (node.metadata or {}).get("version")
+
+        # Record the simulated version change on the node (best-effort; ignored when the
+        # active scope is read-only). No first-class version nodes are created.
+        if record_change:
+            updated_meta = dict(node.metadata or {})
+            updated_meta["last_change_type"] = impact_engine.normalize_change_type(change_type)
+            updated_meta["last_change_assessed_at"] = datetime.utcnow().isoformat()
+            if new_version:
+                updated_meta["version"] = new_version
+            self.update_node(
+                node_id,
+                {"metadata": updated_meta},
+                event_origin=event_origin or "lineage-impact",
+                event_session_id=event_session_id,
+                event_correlation_id=event_correlation_id,
+            )
+            node = self._storage.get_node(node_id) or node
+
+        subgraph = self._storage.traverse_directional(
+            node_id, "reverse", impact_engine.IMPACT_RELATIONSHIPS, depth,
+        )
+        visible_nodes, visible_edges = self._filter_nodes_and_edges(
+            nodes=subgraph['nodes'], edges=subgraph['edges'], graph_access=decision.graph_access,
+        )
+
+        impact_result = impact_engine.assess_impact(
+            node, change_type, visible_nodes, visible_edges,
+            version_before=version_before, version_after=new_version,
+        )
+
+        return {
+            "success": True,
+            "nodes": serialize_nodes(visible_nodes),
+            "edges": serialize_edges(visible_edges),
+            "total_nodes": len(visible_nodes),
+            "total_edges": len(visible_edges),
+            "depth": depth,
+            **impact_result,
+        }
+
+    def get_impact_report(
+        self,
+        node_id: str,
+        change_type: str = "breaking",
+        depth: int = 4,
+        new_version: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Compute change impact and serialize it as a structured, exportable report.
+
+        Does not record the change (read-only) so reports can be regenerated freely.
+        """
+        from . import impact as impact_engine
+
+        impact_result = self.assess_change_impact(
+            node_id, change_type=change_type, depth=depth,
+            new_version=new_version, record_change=False,
+        )
+        if not impact_result.get("success", False):
+            return impact_result
+
+        report = impact_engine.build_impact_report(impact_result)
+        return {"success": True, "report": report}
+
     # ==================== Similarity Operations ====================
 
     def find_similar_nodes(

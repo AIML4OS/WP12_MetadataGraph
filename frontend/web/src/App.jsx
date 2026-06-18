@@ -16,6 +16,8 @@ import CreateAgentDialog from './components/CreateAgentDialog';
 import CreateSkillDialog from './components/CreateSkillDialog';
 import EditEdgeDialog from './components/EditEdgeDialog';
 import NodeDetailDialog from './components/NodeDetailDialog';
+import VersionChangeDialog from './components/VersionChangeDialog';
+import ImpactReportPanel from './components/ImpactReportPanel';
 import * as api from './services/api';
 import './App.css';
 
@@ -56,6 +58,9 @@ function App() {
     federationDepth,
     setFederationDepth,
     showMinimap,
+    loadLineage,
+    runImpact,
+    affectedSeverity,
   } = useGraphStore();
 
   const { t, setLanguage, language } = useI18n();
@@ -74,6 +79,7 @@ function App() {
   const [saveViewSignal, setSaveViewSignal] = useState(0);
   const [isSavingView, setIsSavingView] = useState(false);
   const [editingEdge, setEditingEdge] = useState(null);
+  const [versionChangeTarget, setVersionChangeTarget] = useState(null);
 
   const federationDepthLevels = (stats?.federation?.selectable_depth_levels || [1]).filter(v => Number.isInteger(v) && v >= 1);
   const maxFederationDepth = Math.max(1, ...federationDepthLevels, stats?.federation?.max_selectable_depth || 1);
@@ -208,6 +214,45 @@ function App() {
       showNotification('error', 'Could not expand node');
     }
   }, [nodes, addNodesToVisualization, showNotification]);
+
+  // Callback: Explore lineage of a data set (US-03)
+  const handleExploreLineage = useCallback(async (nodeId) => {
+    try {
+      const result = await loadLineage(nodeId);
+      if (result?.nodes?.length) {
+        showNotification('success', `Loaded lineage (${result.nodes.length} nodes)`);
+      } else {
+        showNotification('info', 'No lineage found for this data set');
+      }
+    } catch (error) {
+      console.error('Error loading lineage:', error);
+      showNotification('error', 'Could not load lineage');
+    }
+  }, [loadLineage, showNotification]);
+
+  // Callback: Trigger a classification version change → opens the impact dialog (US-03)
+  const handleTriggerVersionChange = useCallback((nodeId, nodeData) => {
+    setVersionChangeTarget({ id: nodeId, data: nodeData });
+  }, []);
+
+  // Confirm the version change → run the impact assessment
+  const handleConfirmVersionChange = useCallback(async (changeType, newVersion) => {
+    if (!versionChangeTarget) return;
+    try {
+      const result = await runImpact(versionChangeTarget.id, changeType, newVersion);
+      if (result?.success) {
+        const n = result.summary?.total_affected || 0;
+        showNotification('success', `Impact assessed: ${n} artefact${n !== 1 ? 's' : ''} affected`);
+      } else {
+        showNotification('error', result?.error || 'Could not assess impact');
+      }
+    } catch (error) {
+      console.error('Error assessing impact:', error);
+      showNotification('error', 'Could not assess impact');
+    } finally {
+      setVersionChangeTarget(null);
+    }
+  }, [versionChangeTarget, runImpact, showNotification]);
 
   // Callback: Edit node
   const handleEdit = useCallback(async (nodeId, nodeData) => {
@@ -609,6 +654,9 @@ function App() {
           clearGroupsFlag={clearGroupsFlag}
           onExpand={handleExpand}
           onEdit={handleEdit}
+          onExploreLineage={handleExploreLineage}
+          onTriggerVersionChange={handleTriggerVersionChange}
+          affectedSeverity={affectedSeverity}
           onDelete={handleDelete}
           onHide={handleHide}
           onDeleteMultiple={handleDeleteMultiple}
@@ -643,6 +691,7 @@ function App() {
       </div>
 
       <FloatingHeader stats={stats} onExportGraph={handleExportGraph} />
+      <ImpactReportPanel />
       {maxFederationDepth > 1 && (
         <div className="app-a11y-depth-live" aria-live="polite" aria-atomic="true">
           {t('federation.depth_indicator', { current: federationDepth, max: maxFederationDepth })}
@@ -683,6 +732,15 @@ function App() {
             closeDetailNode();
             handleEdit(nodeId, nodeData);
           }}
+        />
+      )}
+
+      {versionChangeTarget && (
+        <VersionChangeDialog
+          classificationName={versionChangeTarget.data?.name || versionChangeTarget.data?.label || 'classification'}
+          currentVersion={versionChangeTarget.data?.metadata?.version}
+          onConfirm={handleConfirmVersionChange}
+          onCancel={() => setVersionChangeTarget(null)}
         />
       )}
 

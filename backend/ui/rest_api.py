@@ -17,6 +17,7 @@ import json
 
 from .chat_service import ChatService
 from .document_service import DocumentService
+from .explanation_service import ExplanationService
 
 
 # ==================== Request/Response Models ====================
@@ -64,6 +65,18 @@ class UploadResponse(BaseModel):
     chat_response: Optional[ChatResponse] = None
 
 
+class ExplainNodeRequest(BaseModel):
+    """Request for /explain endpoint — plain-language explanation of a single node (US-03)."""
+    node_id: str = Field(..., description="ID of the node to explain")
+    context: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Optional impact context (classification_name, version_before, "
+                    "version_after, change_type, relationship_path, severity)",
+    )
+    api_key: Optional[str] = Field(None, description="Optional API key override")
+    provider: Optional[str] = Field(None, description="Optional provider: 'claude' or 'openai'")
+
+
 class ProposeNodesRequest(BaseModel):
     """Request for /propose-nodes endpoint."""
     text: str = Field(..., description="Text to extract nodes from")
@@ -95,6 +108,9 @@ def create_ui_router(
     # Create document service if not provided
     if document_service is None:
         document_service = DocumentService()
+
+    # Explanation service reuses the chat service's GraphService for node lookups (US-03)
+    explanation_service = ExplanationService(chat_service.graph_service)
 
     # ==================== Chat Endpoints ====================
 
@@ -160,6 +176,30 @@ def create_ui_router(
                 toolUsed=result.get("toolUsed"),
                 toolResult=result.get("toolResult")
             )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/explain")
+    async def explain_node(request: ExplainNodeRequest) -> Dict[str, Any]:
+        """
+        Generate a plain-language explanation of a single node (US-03).
+
+        In impact mode, pass `context` with the classification change details so the
+        explanation says what attribute or mapping must be reviewed. Degrades to a
+        templated explanation when no LLM is configured.
+        """
+        try:
+            result = explanation_service.explain_node(
+                node_id=request.node_id,
+                context=request.context,
+                api_key=request.api_key,
+                provider=request.provider,
+            )
+            if not result.get("success", False):
+                raise HTTPException(status_code=404, detail=result.get("error", "Node not found"))
+            return result
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 

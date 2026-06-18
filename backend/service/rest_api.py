@@ -130,6 +130,20 @@ class SaveViewRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200, description="View name")
 
 
+class LineageRequest(BaseModel):
+    """Request model for a data set lineage subgraph (US-03)."""
+    node_id: str = Field(..., description="Data set node ID to explain")
+    depth: int = Field(4, ge=1, le=8, description="Traversal depth in each direction")
+
+
+class ImpactRequest(BaseModel):
+    """Request model for a classification change-impact assessment (US-03)."""
+    node_id: str = Field(..., description="Changed classification / code list node ID")
+    change_type: str = Field("breaking", description="'breaking' or 'annotation'")
+    depth: int = Field(4, ge=1, le=8, description="Reverse-traversal depth")
+    new_version: Optional[str] = Field(None, description="Optional new version label to record")
+
+
 def _raise_for_access_denied(result: Dict[str, Any]) -> None:
     if result.get("error_code") == "access_denied":
         raise HTTPException(status_code=403, detail=result.get("message") or result.get("error"))
@@ -419,6 +433,48 @@ def _register_views_endpoints(router: APIRouter, service: GraphService) -> None:
         return result
 
 
+def _register_lineage_endpoints(router: APIRouter, service: GraphService) -> None:
+    @router.post("/lineage")
+    async def get_lineage(request: LineageRequest, http_request: Request) -> Dict[str, Any]:
+        """Get the full lineage subgraph (Input -> Process Step -> Output + structure) for a data set."""
+        with use_request_authorization(headers=http_request.headers):
+            result = service.get_lineage(node_id=request.node_id, depth=request.depth)
+        _raise_for_access_denied(result)
+        if not result.get("success", True):
+            raise HTTPException(status_code=404, detail=result.get("error"))
+        return result
+
+    @router.post("/impact")
+    async def assess_impact(request: ImpactRequest, http_request: Request) -> Dict[str, Any]:
+        """Assess downstream impact of a classification version change, grouped by severity."""
+        with use_request_authorization(headers=http_request.headers):
+            result = service.assess_change_impact(
+                node_id=request.node_id,
+                change_type=request.change_type,
+                depth=request.depth,
+                new_version=request.new_version,
+            )
+        _raise_for_access_denied(result)
+        if not result.get("success", True):
+            raise HTTPException(status_code=404, detail=result.get("error"))
+        return result
+
+    @router.post("/impact/report")
+    async def get_impact_report(request: ImpactRequest, http_request: Request) -> Dict[str, Any]:
+        """Produce a structured, exportable change-impact report (does not record the change)."""
+        with use_request_authorization(headers=http_request.headers):
+            result = service.get_impact_report(
+                node_id=request.node_id,
+                change_type=request.change_type,
+                depth=request.depth,
+                new_version=request.new_version,
+            )
+        _raise_for_access_denied(result)
+        if not result.get("success", True):
+            raise HTTPException(status_code=404, detail=result.get("error"))
+        return result
+
+
 def _register_export_endpoints(router: APIRouter, service: GraphService) -> None:
     @router.get("/export")
     async def export_graph(request: Request) -> Dict[str, Any]:
@@ -450,6 +506,7 @@ def create_rest_router(service: GraphService, prefix: str = "") -> APIRouter:
     _register_edge_crud_endpoints(router, service)
     _register_metadata_endpoints(router, service)
     _register_views_endpoints(router, service)
+    _register_lineage_endpoints(router, service)
     _register_export_endpoints(router, service)
 
     return router

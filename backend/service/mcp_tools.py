@@ -105,6 +105,74 @@ def register_mcp_tools(mcp, service: GraphService) -> Dict[str, Callable]:
             depth=depth
         )
 
+    # ==================== Lineage & Change Impact Tools (US-03) ====================
+
+    @register_tool
+    def get_lineage(node_id: str, depth: int = 4) -> Dict[str, Any]:
+        """
+        Get the full lineage subgraph for a data set.
+
+        Traces the Input -> Process Step -> Output provenance chain and the data set's
+        structure, variables and code lists on the same graph.
+
+        Args:
+            node_id: ID of the data set to explain
+            depth: maximum traversal depth in each direction (default 4)
+
+        Returns:
+            Dict with the lineage nodes and edges
+        """
+        return service.get_lineage(node_id=node_id, depth=depth)
+
+    @register_tool
+    def assess_change_impact(
+        node_id: str,
+        change_type: str = "breaking",
+        depth: int = 4,
+        new_version: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Assess downstream impact of a classification (code list) version change.
+
+        Traverses the graph in reverse from the changed classification and groups all
+        affected artefacts by impact severity (breaking vs annotation-only).
+
+        Args:
+            node_id: ID of the changed classification / code list node
+            change_type: "breaking" or "annotation"
+            depth: maximum reverse-traversal depth (default 4)
+            new_version: optional new version label to record on the node
+
+        Returns:
+            Dict with the affected artefacts, severity groups and impact subgraph
+        """
+        return service.assess_change_impact(
+            node_id=node_id, change_type=change_type, depth=depth, new_version=new_version,
+        )
+
+    @register_tool
+    def get_impact_report(
+        node_id: str,
+        change_type: str = "breaking",
+        depth: int = 4,
+        new_version: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Produce a structured, exportable change-impact report for a classification change.
+
+        Args:
+            node_id: ID of the changed classification / code list node
+            change_type: "breaking" or "annotation"
+            depth: maximum reverse-traversal depth (default 4)
+            new_version: optional new version label
+
+        Returns:
+            Dict with a structured report (JSON plus a text rendering)
+        """
+        return service.get_impact_report(
+            node_id=node_id, change_type=change_type, depth=depth, new_version=new_version,
+        )
+
     # ==================== Similarity Tools ====================
 
     @register_tool

@@ -535,6 +535,113 @@ class GraphStorage:
             'edges': [self.edges[eid] for eid in visited_edges if eid in self.edges]
         }
 
+    # Relationship groups used to compose a data-set lineage subgraph.
+    # Provenance edges flow in the direction of data flow (Input -> ProcessStep -> Output),
+    # so reverse traversal from an output data set reaches its process step and inputs.
+    LINEAGE_PROVENANCE_RELATIONSHIPS = ["PRODUCES_OUTPUT", "INPUT_TO", "PRODUCES"]
+    # Structure edges fan out from a data set to its artefact detail.
+    LINEAGE_STRUCTURE_RELATIONSHIPS = [
+        "HAS_STRUCTURE", "HAS_VARIABLE", "USES_CODE_LIST",
+        "MEASURES", "OBSERVED_FOR", "USES_VALUE_DOMAIN",
+    ]
+
+    def traverse_directional(
+        self,
+        node_id: str,
+        direction: str = "forward",
+        relationship_types: Optional[List[str]] = None,
+        depth: int = 3,
+    ) -> Dict[str, Any]:
+        """
+        Traverse the graph in a single direction, filtering by relationship type.
+
+        Mirrors get_related_nodes but follows edges in one direction only:
+        - direction="forward" follows out_edges (the direction of data flow), used for
+          lineage of a data set to its structure/variables/code lists.
+        - direction="reverse" follows in_edges (dependency direction), used for reverse
+          lineage (output -> process step -> input) and change-impact propagation
+          (a classification outward to dependent variables -> structures -> data sets).
+
+        Args:
+            node_id: starting node ID
+            direction: "forward" (out_edges) or "reverse" (in_edges)
+            relationship_types: optional list of relationship type names to follow
+                (matched against each edge's string type); None follows all types
+            depth: maximum number of hops from the starting node
+
+        Returns:
+            Dict with 'nodes' and 'edges' (Node/Edge objects). The starting node is
+            included in 'nodes' so the caller always has the full connected fragment.
+        """
+        if node_id not in self.nodes:
+            return {'nodes': [], 'edges': []}
+        if direction not in ("forward", "reverse"):
+            raise ValueError(f"direction must be 'forward' or 'reverse', got {direction!r}")
+
+        rel_filter = set(relationship_types) if relationship_types else None
+
+        visited_nodes = {node_id}
+        visited_edges = set()
+        current_layer = {node_id}
+
+        for _ in range(max(0, depth)):
+            next_layer = set()
+            for curr_id in current_layer:
+                if direction == "forward":
+                    edge_iter = self.graph.out_edges(curr_id, keys=True, data=True)
+                else:
+                    edge_iter = self.graph.in_edges(curr_id, keys=True, data=True)
+
+                for source, target, edge_id, edge_data in edge_iter:
+                    edge = edge_data['data']
+                    if rel_filter is not None and edge.type_str not in rel_filter:
+                        continue
+                    neighbor = target if direction == "forward" else source
+                    visited_edges.add(edge_id)
+                    if neighbor not in visited_nodes:
+                        visited_nodes.add(neighbor)
+                        next_layer.add(neighbor)
+            current_layer = next_layer
+
+        return {
+            'nodes': [self.nodes[nid] for nid in visited_nodes if nid in self.nodes],
+            'edges': [self.edges[eid] for eid in visited_edges if eid in self.edges],
+        }
+
+    def get_lineage_subgraph(self, dataset_id: str, depth: int = 4) -> Dict[str, Any]:
+        """
+        Build the full lineage subgraph for a selected data set.
+
+        Composes two single-direction traversals on the SAME graph:
+        - a reverse walk over provenance relationships to gather the Input data sets,
+          Process Step(s) and producing programme that derive the data set;
+        - a forward walk over structure relationships to gather the data set's
+          structure, variables, code lists and the concepts/unit types they reference.
+
+        Args:
+            dataset_id: ID of the (typically output) data set to explain
+            depth: maximum number of hops for each traversal direction
+
+        Returns:
+            Dict with merged, de-duplicated 'nodes' and 'edges'.
+        """
+        if dataset_id not in self.nodes:
+            return {'nodes': [], 'edges': []}
+
+        reverse = self.traverse_directional(
+            dataset_id, "reverse", self.LINEAGE_PROVENANCE_RELATIONSHIPS, depth
+        )
+        forward = self.traverse_directional(
+            dataset_id, "forward", self.LINEAGE_STRUCTURE_RELATIONSHIPS, depth
+        )
+
+        nodes_by_id = {n.id: n for n in reverse['nodes']}
+        nodes_by_id.update({n.id: n for n in forward['nodes']})
+        edges_by_id = {e.id: e for e in reverse['edges']}
+        edges_by_id.update({e.id: e for e in forward['edges']})
+
+        return {'nodes': list(nodes_by_id.values()), 'edges': list(edges_by_id.values())}
+
     def find_similar_nodes(
         self,
         name: str,

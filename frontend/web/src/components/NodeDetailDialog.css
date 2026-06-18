@@ -214,3 +214,79 @@
   background: #333;
   color: #ddd;
 }
+
+/* ===== Inline explanation (US-03) ===== */
+.node-detail-explanation {
+  border-top: 1px solid #444;
+  padding-top: 0.85rem;
+}
+
+.node-detail-explanation-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.node-detail-severity-pill {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  color: #fff;
+}
+
+.node-detail-severity-pill.severity-breaking {
+  background-color: #ef4444;
+}
+
+.node-detail-severity-pill.severity-annotation-only {
+  background-color: #f59e0b;
+}
+
+.node-detail-explanation-text {
+  white-space: pre-line;
+  line-height: 1.5;
+  margin: 0.5rem 0 0.75rem;
+  color: #ddd;
+}
+
+.node-detail-explanation-hint {
+  color: #999;
+  font-size: 0.85rem;
+  margin: 0.4rem 0 0.75rem;
+}
+
+.node-detail-explanation-error {
+  color: #f87171;
+  font-size: 0.85rem;
+  margin: 0.25rem 0;
+}
+
+.node-detail-explanation-button {
+  padding: 0.45rem 0.8rem;
+  border-radius: 6px;
+  border: 1px solid #646cff;
+  background: transparent;
+  color: #a5abff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.node-detail-explanation-button:hover:not(:disabled) {
+  background: #646cff;
+  color: #fff;
+}
+
+.node-detail-explanation-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+@media (prefers-color-scheme: light) {
+  .node-detail-explanation-text {
+    color: #213547;
+  }
+}

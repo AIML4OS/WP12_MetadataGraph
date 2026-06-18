@@ -120,6 +120,49 @@ export async function getRelatedNodes(nodeId, options = {}) {
 }
 
 /**
+ * Get the lineage subgraph (Input → Process Step → Output + structure) for a data set
+ * @param {string} nodeId - Data set node ID
+ * @param {number} depth - Traversal depth
+ * @returns {Promise<{success: boolean, nodes: Array, edges: Array}>}
+ */
+export async function getLineage(nodeId, depth = 4) {
+  return apiFetch(`${API_BASE}/lineage`, {
+    method: 'POST',
+    body: JSON.stringify({ node_id: nodeId, depth }),
+  });
+}
+
+/**
+ * Assess downstream impact of a classification version change
+ * @param {string} nodeId - Changed classification / code list node ID
+ * @param {string} changeType - 'breaking' or 'annotation'
+ * @param {string|null} newVersion - Optional new version label to record
+ * @param {number} depth - Reverse-traversal depth
+ * @returns {Promise<{success: boolean, affected: Array, groups: Object, nodes: Array, edges: Array}>}
+ */
+export async function assessImpact(nodeId, changeType = 'breaking', newVersion = null, depth = 4) {
+  return apiFetch(`${API_BASE}/impact`, {
+    method: 'POST',
+    body: JSON.stringify({ node_id: nodeId, change_type: changeType, new_version: newVersion, depth }),
+  });
+}
+
+/**
+ * Get a structured, exportable change-impact report
+ * @param {string} nodeId - Changed classification / code list node ID
+ * @param {string} changeType - 'breaking' or 'annotation'
+ * @param {string|null} newVersion - Optional new version label
+ * @param {number} depth - Reverse-traversal depth
+ * @returns {Promise<{success: boolean, report: Object}>}
+ */
+export async function getImpactReport(nodeId, changeType = 'breaking', newVersion = null, depth = 4) {
+  return apiFetch(`${API_BASE}/impact/report`, {
+    method: 'POST',
+    body: JSON.stringify({ node_id: nodeId, change_type: changeType, new_version: newVersion, depth }),
+  });
+}
+
+/**
  * Find similar nodes by name
  * @param {string} name - Name to search for
  * @param {Object} options - Search options
@@ -418,6 +461,19 @@ export async function uploadFile(file, analyze = false) {
   }
 
   return response.json();
+}
+
+/**
+ * Get a plain-language explanation of a single node (US-03).
+ * @param {string} nodeId - Node ID to explain
+ * @param {Object|null} context - Optional impact context (classification change details)
+ * @returns {Promise<{success: boolean, explanation: string, llm_available: boolean}>}
+ */
+export async function explainNode(nodeId, context = null) {
+  return apiFetch(`${UI_API_BASE}/explain`, {
+    method: 'POST',
+    body: JSON.stringify({ node_id: nodeId, context }),
+  });
 }
 
 /**

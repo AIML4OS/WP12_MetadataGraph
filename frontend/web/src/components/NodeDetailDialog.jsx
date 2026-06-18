@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import useGraphStore from '../store/graphStore';
 import { useI18n } from '../i18n';
+import * as api from '../services/api';
 import './NodeDetailDialog.css';
 
 const BASE_FIELDS = new Set(['name', 'description', 'summary', 'tags', 'subtypes', 'metadata', 'identifier']);
@@ -26,12 +27,52 @@ function asUrl(value) {
 }
 
 function NodeDetailDialog({ node, onClose, onEdit }) {
-  const { getNodeColor, schema } = useGraphStore();
+  const {
+    getNodeColor, schema,
+    impactResult, affectedSeverity, explanationCache, setNodeExplanation,
+  } = useGraphStore();
   const { t } = useI18n();
 
   const data = node?.data || {};
   const nodeType = data.type || data.nodeType || '';
   const color = getNodeColor(nodeType);
+
+  // ===== Inline LLM explanation (US-03) =====
+  const nodeId = node?.id || data.id;
+  const severity = affectedSeverity?.[nodeId];
+  const cachedExplanation = explanationCache?.[nodeId];
+  const [explLoading, setExplLoading] = useState(false);
+  const [explError, setExplError] = useState(null);
+
+  const buildImpactContext = () => {
+    if (!impactResult || !severity || severity === 'source') return null;
+    const affected = (impactResult.affected || []).find(a => a.id === nodeId);
+    const changed = impactResult.changed_node || {};
+    return {
+      classification_name: changed.name,
+      changed_name: changed.name,
+      version_before: changed.version_before,
+      version_after: changed.version_after,
+      change_type: impactResult.change_type,
+      relationship_path: affected?.path,
+      severity,
+    };
+  };
+
+  const handleExplain = async () => {
+    if (!nodeId) return;
+    setExplLoading(true);
+    setExplError(null);
+    try {
+      const res = await api.explainNode(nodeId, buildImpactContext());
+      setNodeExplanation(nodeId, res.explanation || '');
+    } catch (err) {
+      console.error('Error generating explanation:', err);
+      setExplError('Could not generate explanation');
+    } finally {
+      setExplLoading(false);
+    }
+  };
 
   // Schema-defined extra fields for this node type (stored in metadata by backend)
   const schemaFields = schema?.node_types?.[nodeType]?.fields || [];
@@ -160,6 +201,36 @@ function NodeDetailDialog({ node, onClose, onEdit }) {
               </div>
             </div>
           )}
+
+          <div className="node-detail-section node-detail-explanation">
+            <div className="node-detail-explanation-head">
+              <label>Explanation</label>
+              {severity && severity !== 'source' && (
+                <span className={`node-detail-severity-pill severity-${severity}`}>
+                  {severity === 'breaking' ? 'Breaking change' : 'Annotation only'}
+                </span>
+              )}
+            </div>
+            {cachedExplanation ? (
+              <p className="node-detail-explanation-text">{cachedExplanation}</p>
+            ) : (
+              <p className="node-detail-explanation-hint">
+                {severity && severity !== 'source'
+                  ? 'Generate an LLM explanation of what must be reviewed for this affected artefact.'
+                  : 'Generate an LLM plain-language explanation of this entity.'}
+              </p>
+            )}
+            {explError && <p className="node-detail-explanation-error">{explError}</p>}
+            <button
+              className="node-detail-explanation-button"
+              onClick={handleExplain}
+              disabled={explLoading}
+            >
+              {explLoading
+                ? 'Generating…'
+                : cachedExplanation ? 'Regenerate explanation' : 'Generate explanation'}
+            </button>
+          </div>
         </div>
 
         <div className="node-detail-actions">

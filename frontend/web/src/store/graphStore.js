@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import * as api from '../services/api';
 
 const FEDERATION_DEPTH_STORAGE_KEY = 'federation_depth';
 const SHOW_MINIMAP_STORAGE_KEY = 'show_minimap';
@@ -144,6 +145,12 @@ const useGraphStore = create((set, get) => ({
   searchQuery: '',
   searchResults: null,
   federationDepth: loadInitialFederationDepth(),
+
+  // Lineage & change-impact state (US-03)
+  lineageMode: false,                 // true when a lineage/impact view is active
+  affectedSeverity: {},               // nodeId -> 'breaking' | 'annotation-only'
+  impactResult: null,                 // last assess_change_impact result
+  explanationCache: {},               // nodeId -> plain-language explanation text
 
   // Chat state
   chatMessages: [DEFAULT_WELCOME_MESSAGE],
@@ -464,6 +471,55 @@ const useGraphStore = create((set, get) => ({
       edges: edges.filter(e => e.source !== nodeId && e.target !== nodeId),
     });
   },
+
+  // ===== Lineage & change-impact actions (US-03) =====
+
+  // Load a data set's lineage subgraph and render it (replaces the visualization)
+  loadLineage: async (nodeId) => {
+    const result = await api.getLineage(nodeId);
+    if (result?.nodes) {
+      get().updateVisualization(result.nodes, result.edges || [], [nodeId]);
+      set({ lineageMode: true, affectedSeverity: {}, impactResult: null });
+    }
+    return result;
+  },
+
+  // Trigger a classification version change and compute downstream impact.
+  // The affected subgraph is merged into the current visualization and each affected
+  // node is tagged with its severity for distinct, grouped rendering.
+  runImpact: async (nodeId, changeType = 'breaking', newVersion = null) => {
+    const result = await api.assessImpact(nodeId, changeType, newVersion);
+    if (result?.success) {
+      const severity = {};
+      (result.affected || []).forEach((a) => { severity[a.id] = a.severity; });
+      // The changed classification itself is the trigger — mark it so it is visible.
+      severity[nodeId] = severity[nodeId] || 'source';
+
+      const { nodes, edges } = get();
+      const nodeMap = new Map(nodes.map(n => [n.id, n]));
+      (result.nodes || []).forEach(n => { if (!nodeMap.has(n.id)) nodeMap.set(n.id, n); });
+      const edgeMap = new Map(edges.map(e => [e.id, e]));
+      (result.edges || []).forEach(e => { if (!edgeMap.has(e.id)) edgeMap.set(e.id, e); });
+
+      set({
+        nodes: Array.from(nodeMap.values()),
+        edges: Array.from(edgeMap.values()),
+        impactResult: result,
+        affectedSeverity: severity,
+        lineageMode: true,
+        highlightedNodeIds: [nodeId],
+      });
+    }
+    return result;
+  },
+
+  // Clear the impact overlay (keeps the nodes on the canvas, drops severity styling)
+  clearImpact: () => set({ impactResult: null, affectedSeverity: {}, lineageMode: false }),
+
+  // Cache an LLM explanation for a node
+  setNodeExplanation: (nodeId, explanation) => set((state) => ({
+    explanationCache: { ...state.explanationCache, [nodeId]: explanation },
+  })),
 }));
 
 export default useGraphStore;
