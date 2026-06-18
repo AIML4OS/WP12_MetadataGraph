@@ -14,12 +14,24 @@ import ChatPanel from './components/ChatPanel';
 import CreateSubscriptionDialog from './components/CreateSubscriptionDialog';
 import CreateAgentDialog from './components/CreateAgentDialog';
 import CreateSkillDialog from './components/CreateSkillDialog';
+import CreateActiveKnowledgeCollectionDialog from './components/CreateActiveKnowledgeCollectionDialog';
+import CollectKioskView from './components/CollectKioskView';
 import EditEdgeDialog from './components/EditEdgeDialog';
 import NodeDetailDialog from './components/NodeDetailDialog';
 import * as api from './services/api';
 import './App.css';
 
+// Read URL params once at module level (safe — these don't change during a session)
+const _urlParams = new URLSearchParams(window.location.search);
+const _collectShortName = _urlParams.get('collect');
+const _akcShortName = _urlParams.get('akc');
+
 function App() {
+  // If ?collect=<shortName> is present, render the kiosk view exclusively.
+  // We handle this via a separate exported component (AppRoot) to avoid
+  // calling hooks conditionally — see export default below.
+  const akcShortName = _akcShortName;
+
   const {
     nodes,
     edges,
@@ -69,6 +81,9 @@ function App() {
   const [editingAgentData, setEditingAgentData] = useState(null);
   const [showSkillDialog, setShowSkillDialog] = useState(false);
   const [editingSkillData, setEditingSkillData] = useState(null);
+  const [showAKCDialog, setShowAKCDialog] = useState(false);
+  const [editingAKCData, setEditingAKCData] = useState(null);
+  const [akcIntroShown, setAkcIntroShown] = useState(false);
   const [createNodeType, setCreateNodeType] = useState(null);
   const [createGroupSignal, setCreateGroupSignal] = useState(0);
   const [saveViewSignal, setSaveViewSignal] = useState(0);
@@ -113,6 +128,14 @@ function App() {
     };
     loadConfig();
   }, [setConfig, setStats, setLlmAvailable, t, setLanguage, language]);
+
+  // Load AKC config when ?akc=shortName is in URL
+  useEffect(() => {
+    if (!akcShortName) return;
+    api.getCollectConfig(akcShortName)
+      .then(data => setAkcConfig(data))
+      .catch(err => console.error('Failed to load AKC config:', err));
+  }, [akcShortName]);
 
   const showNotification = useCallback((type, message) => {
     setNotification({ type, message });
@@ -235,6 +258,9 @@ function App() {
     } else if (nodeData.type === 'Skill') {
       setEditingSkillData(nodeData);
       setShowSkillDialog(true);
+    } else if (nodeData.type === 'ActiveKnowledgeCollection') {
+      setEditingAKCData({ node: nodeData });
+      setShowAKCDialog(true);
     } else {
       setEditingNode({ id: nodeId, data: nodeData });
     }
@@ -434,6 +460,36 @@ function App() {
     setShowSkillDialog(true);
   }, []);
 
+  // Callback: Create Active Knowledge Collection
+  const handleCreateAKC = useCallback(() => {
+    setEditingAKCData(null);
+    setShowAKCDialog(true);
+  }, []);
+
+  // Save AKC node (create or update)
+  const handleSaveAKC = useCallback(async (nodeData) => {
+    try {
+      if (nodeData.id) {
+        const { id, ...updates } = nodeData;
+        await api.updateNode(id, updates);
+        const newNodes = nodes.map(n => n.id === id ? { ...n, ...updates } : n);
+        updateVisualization(newNodes, edges);
+        showNotification('success', 'Knowledge collection updated');
+      } else {
+        const result = await api.addNodes([nodeData], []);
+        if (result.added_node_ids && result.added_node_ids.length > 0) {
+          const withId = { ...nodeData, id: result.added_node_ids[0] };
+          addNodesToVisualization([withId], []);
+        }
+        showNotification('success', `Collection "${nodeData.name}" created`);
+      }
+    } catch (error) {
+      console.error('Error saving AKC:', error);
+      showNotification('error', 'Could not save knowledge collection');
+    }
+  }, [nodes, edges, addNodesToVisualization, updateVisualization, showNotification]);
+
+
   // Save subscription node
   const handleSaveSubscription = useCallback(async (data) => {
     try {
@@ -576,10 +632,12 @@ function App() {
       handleCreateSubscription();
     } else if (nodeType === 'Skill') {
       handleCreateSkill();
+    } else if (nodeType === 'ActiveKnowledgeCollection') {
+      handleCreateAKC();
     } else {
       setCreateNodeType(nodeType);
     }
-  }, [handleCreateAgent, handleCreateSubscription, handleCreateSkill]);
+  }, [handleCreateAgent, handleCreateSubscription, handleCreateSkill, handleCreateAKC]);
 
   // Handle node update from edit dialog
   const handleNodeUpdate = useCallback(async (nodeId, updates) => {
@@ -656,8 +714,9 @@ function App() {
         onCreateSkill={handleCreateSkill}
         onSaveView={handleToolbarSaveView}
         onCreateGroup={handleToolbarCreateGroup}
+        onCreateActiveKnowledgeCollection={handleCreateAKC}
       />
-      {llmAvailable && <ChatPanel />}
+      {llmAvailable && <ChatPanel collectionShortName={akcShortName || undefined} />}
 
       {createNodeType && (
         <CreateNodeDialog
@@ -761,8 +820,83 @@ function App() {
           initialData={editingSkillData}
         />
       )}
+
+      {showAKCDialog && (
+        <CreateActiveKnowledgeCollectionDialog
+          onClose={() => {
+            setShowAKCDialog(false);
+            setEditingAKCData(null);
+          }}
+          onSave={handleSaveAKC}
+          initialData={editingAKCData}
+        />
+      )}
+
+      {/* AKC intro overlay — shown when ?akc=shortName is in URL */}
+      {akcShortName && !akcIntroShown && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.82)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 3000,
+          }}
+        >
+          <div
+            style={{
+              background: '#1a1a1a',
+              border: '1px solid #2e2e2e',
+              borderRadius: '16px',
+              boxShadow: '0 12px 48px rgba(0,0,0,0.6)',
+              padding: '2.5rem 3rem',
+              maxWidth: '520px',
+              width: '90%',
+              textAlign: 'center',
+            }}
+          >
+            <div style={{ fontSize: '2rem', marginBottom: '0.75rem' }}>📋</div>
+            <h2 style={{ margin: '0 0 1rem 0', color: '#fff' }}>Knowledge Collection</h2>
+            <p style={{ color: '#bbb', fontSize: '0.95rem', lineHeight: 1.65, marginBottom: '1.5rem' }}>
+              The AI assistant has been pre-loaded with special collection instructions.
+            </p>
+            <button
+              onClick={() => setAkcIntroShown(true)}
+              style={{
+                padding: '0.7rem 2rem',
+                background: '#F59E0B',
+                color: '#000',
+                border: 'none',
+                borderRadius: '8px',
+                fontSize: '0.95rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Open Graph
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-export default App;
+/**
+ * AppRoot — top-level router.
+ *
+ * Handles the ?collect=<shortName> kiosk mode by rendering CollectKioskView
+ * directly, bypassing the full App component (and its hooks) entirely.
+ * This avoids a React rules-of-hooks violation that would occur if we
+ * returned early inside App itself before calling useState/useGraphStore.
+ */
+function AppRoot() {
+  if (_collectShortName) {
+    return <CollectKioskView shortName={_collectShortName} />;
+  }
+  return <App />;
+}
+
+export default AppRoot;

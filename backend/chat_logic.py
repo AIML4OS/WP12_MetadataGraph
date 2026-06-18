@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Callable
+from typing import List, Dict, Any, Callable, Optional
 import os
 import json
 from dotenv import load_dotenv
