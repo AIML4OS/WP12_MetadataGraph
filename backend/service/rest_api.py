@@ -452,4 +452,35 @@ def create_rest_router(service: GraphService, prefix: str = "") -> APIRouter:
     _register_views_endpoints(router, service)
     _register_export_endpoints(router, service)
 
+    @router.get("/collect/{short_name}")
+    async def get_collect_config(short_name: str) -> Dict[str, Any]:
+        """Get Active Knowledge Collection configuration by short name."""
+        try:
+            result = service.search_graph(
+                query="",
+                node_types=["ActiveKnowledgeCollection"],
+                limit=200
+            )
+            nodes = result.get("nodes", [])
+            for node in nodes:
+                metadata = node.get("metadata") or {}
+                if metadata.get("short_name") == short_name:
+                    return {
+                        "found": True,
+                        "name": node.get("name", ""),
+                        "short_name": short_name,
+                        "introduction_text": metadata.get("introduction_text", ""),
+                        "prompt": metadata.get("prompt", ""),
+                        "skills": metadata.get("skills", []),
+                        "node_type_permissions": metadata.get("node_type_permissions", {}),
+                    }
+            raise HTTPException(
+                status_code=404,
+                detail=f"No Active Knowledge Collection found with short_name '{short_name}'"
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
     return router

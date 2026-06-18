@@ -732,6 +732,17 @@ def create_app(
             return FileResponse(str(_favicon_path), media_type="image/svg+xml")
         return JSONResponse(status_code=204, content=None)
 
+    @app.get("/collect/{short_name}")
+    @app.get("/collect/{short_name}/")
+    async def collect_redirect(short_name: str) -> RedirectResponse:
+        """Redirect collect kiosk URL to the web app in collect mode."""
+        return RedirectResponse(url=f"/web/?collect={short_name}", status_code=302)
+
+    @app.get("/collect")
+    async def collect_root_redirect() -> RedirectResponse:
+        """Redirect bare collect URL to web app."""
+        return RedirectResponse(url="/web/", status_code=302)
+
     # Mount static files for web app
     _mount_static_files(app, config)
 
