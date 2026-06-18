@@ -29,6 +29,7 @@ import {
   LightbulbFill,
   GearFill,
   CollectionFill,
+  FunnelFill,
 } from 'react-bootstrap-icons';
 import useGraphStore from '../store/graphStore';
 import { useI18n } from '../i18n';
@@ -65,6 +66,7 @@ const ICON_REGISTRY = {
   LightbulbFill,
   GearFill,
   CollectionFill,
+  FunnelFill,
 };
 
 // Legacy fallback: maps node type name -> icon name (used when schema has no icon field)
@@ -90,6 +92,7 @@ const LEGACY_ICON_MAP = {
   EventSubscription: 'BellFill',
   SavedView: 'BookmarkFill',
   Group: 'FolderFill',
+  ActiveKnowledgeCollection: 'FunnelFill',
 };
 
 const COLOR_MAP = {
@@ -152,6 +155,7 @@ function FloatingToolbar({
   onCreateSkill,
   onSaveView,
   onCreateGroup,
+  onCreateActiveKnowledgeCollection,
 }) {
   const { t } = useI18n();
   const [hoveredType, setHoveredType] = useState(null);
@@ -195,6 +199,8 @@ function FloatingToolbar({
       onSaveView?.();
     } else if (nodeType === 'Group') {
       onCreateGroup?.();
+    } else if (nodeType === 'ActiveKnowledgeCollection') {
+      onCreateActiveKnowledgeCollection?.();
     } else {
       onCreateNode?.(nodeType);
     }

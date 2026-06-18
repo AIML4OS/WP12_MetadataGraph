@@ -782,6 +782,13 @@ class ChatProcessor:
                     "toolResult": None
                 }
 
+            # Build effective system prompt (with optional prefix for collection mode)
+            effective_system_prompt = (
+                system_prompt_prefix + "\n\n" + self.system_prompt
+                if system_prompt_prefix
+                else self.system_prompt
+            )
+
             # Create provider with the appropriate key
             llm_provider = create_provider(key_to_use, provider_to_use)
 
@@ -939,6 +946,7 @@ class ChatProcessor:
             ]
         })
 
+        prompt_to_use = effective_system_prompt if effective_system_prompt is not None else self.system_prompt
         final_response = provider.create_completion(
             messages=messages,
             system_prompt=active_system_prompt,

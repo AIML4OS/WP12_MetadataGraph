@@ -372,6 +372,9 @@ export async function sendChatMessage(messages, documentContext = null, options 
   if (options.skillsContext) {
     body.skills_context = options.skillsContext;
   }
+  if (options.collectionShortName) {
+    body.collection_short_name = options.collectionShortName;
+  }
   return apiFetch(`${UI_API_BASE}/chat`, {
     method: 'POST',
     body: JSON.stringify(body),
@@ -464,3 +467,13 @@ export async function proposeNodesFromText(text, options = {}) {
     }),
   });
 }
+
+/**
+ * Get the configuration for an Active Knowledge Collection by short name
+ * @param {string} shortName - The unique short name
+ * @returns {Promise<Object>}
+ */
+export async function getCollectConfig(shortName) {
+  return apiFetch(`${API_BASE}/collect/${encodeURIComponent(shortName)}`);
+}
+

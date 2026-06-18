@@ -233,6 +233,7 @@ class ChatService:
         federation_depth: Optional[int] = None,
         expert_agent_id: Optional[str] = None,
         skills_context: Optional[str] = None,
+        system_prompt_prefix: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Process a chat message and return the response.
@@ -263,9 +264,9 @@ class ChatService:
         """
         self._current_federation_depth = federation_depth
         try:
-            extra_context = self._build_expert_context(expert_agent_id) if expert_agent_id else None
+            expert_context = self._build_expert_context(expert_agent_id) if expert_agent_id else None
             if expert_agent_id:
-                if extra_context:
+                if expert_context:
                     full = self._expert_skills_full.get(expert_agent_id)
                     skill_count = len(full or self._expert_skills.get(expert_agent_id) or [])
                     logger.info(
@@ -278,15 +279,20 @@ class ChatService:
                         " — expert may not be registered",
                         expert_agent_id,
                     )
-            # Merge Skill-node instructions (from frontend selection) into extra_context.
-            # skills_context is active for this single request only and is NOT stored
-            # in conversation history, so the persona doesn't bleed into later turns.
+            # Combine system prompt prefix and expert context
+            if system_prompt_prefix and expert_context:
+                extra_context = f"{system_prompt_prefix}\n\n{expert_context}"
+            else:
+                extra_context = system_prompt_prefix or expert_context
+
+            # Merge Skill-node instructions into extra_context (single request only).
             if skills_context:
                 extra_context = (
                     f"{extra_context}\n\n{skills_context}"
                     if extra_context
                     else skills_context
                 )
+
 
             return self._processor.process_message(
                 messages=messages,
