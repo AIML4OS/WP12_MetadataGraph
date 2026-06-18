@@ -129,12 +129,12 @@ function App() {
     loadConfig();
   }, [setConfig, setStats, setLlmAvailable, t, setLanguage, language]);
 
-  // Load AKC config when ?akc=shortName is in URL
+  // Load AKC intro config when ?akc=shortName is in URL (for the intro overlay only)
   useEffect(() => {
     if (!akcShortName) return;
     api.getCollectConfig(akcShortName)
       .then(data => setAkcConfig(data))
-      .catch(err => console.error('Failed to load AKC config:', err));
+      .catch(err => console.error('[App] Failed to load AKC config:', err));
   }, [akcShortName]);
 
   const showNotification = useCallback((type, message) => {

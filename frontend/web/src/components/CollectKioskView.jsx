@@ -50,92 +50,56 @@ function CollectKioskView({ shortName }) {
     fetchConfig();
   }, [shortName]);
 
-  // Build the effective system prompt prefix from config
-  const buildSystemPromptPrefix = useCallback((cfg) => {
-    if (!cfg) return '';
 
-    const lines = ['COLLECTION MODE INSTRUCTIONS:'];
-    if (cfg.prompt) {
-      lines.push(cfg.prompt);
-      lines.push('');
-    }
-
-    const perms = cfg.node_type_permissions || {};
-    const permEntries = Object.entries(perms);
-    if (permEntries.length > 0) {
-      lines.push('PERMITTED OPERATIONS:');
-      permEntries.forEach(([type, ops]) => {
-        const allowed = [];
-        if (ops.create) allowed.push('create');
-        if (ops.update) allowed.push('update');
-        if (ops.delete) allowed.push('delete');
-        if (allowed.length > 0) {
-          lines.push(`- ${type}: ${allowed.join(', ')}`);
-        }
-      });
-      lines.push('');
-      lines.push(
-        'IMPORTANT: Only perform operations that are explicitly listed as permitted above. ' +
-        'Do not create, update, or delete node types that are not listed, or perform operations ' +
-        'that are not permitted for a given type.'
-      );
-    }
-
-    return lines.join('\n');
-  }, []);
-
-  const handleSend = async () => {
+  const handleSend = useCallback(async () => {
     if (!inputValue.trim() || isProcessing) return;
 
     const userText = inputValue.trim();
-    const userMessage = {
+
+    // Capture history synchronously before state updates to avoid stale-closure issues
+    const conversationHistory = [
+      ...messages.map(m => ({ role: m.role, content: m.content })),
+      { role: 'user', content: userText },
+    ];
+
+    setMessages(prev => [...prev, {
+      id: crypto.randomUUID(),
       role: 'user',
       content: userText,
       timestamp: new Date(),
-    };
-
-    setMessages(prev => [...prev, userMessage]);
+    }]);
     setInputValue('');
     setIsProcessing(true);
     setChatError(null);
 
     try {
-      // Build conversation history for the API call
-      const conversationHistory = messages.map(m => ({
-        role: m.role,
-        content: m.content,
-      }));
-      conversationHistory.push({ role: 'user', content: userText });
-
-      const systemPromptPrefix = buildSystemPromptPrefix(config);
-
       const response = await api.sendChatMessage(
         conversationHistory,
         null,
-        { systemPromptPrefix }
+        { collectionShortName: shortName }
       );
 
-      const assistantMessage = {
+      setMessages(prev => [...prev, {
+        id: crypto.randomUUID(),
         role: 'assistant',
         content: response.content || '(no response)',
         timestamp: new Date(),
         toolUsed: response.toolUsed,
-      };
-      setMessages(prev => [...prev, assistantMessage]);
+      }]);
     } catch (err) {
       console.error('[CollectKioskView] Chat error:', err);
       setChatError(err.message);
       setMessages(prev => [...prev, {
+        id: crypto.randomUUID(),
         role: 'assistant',
         content: `Error: ${err.message}`,
         timestamp: new Date(),
       }]);
     } finally {
       setIsProcessing(false);
-      // Refocus textarea
       setTimeout(() => textareaRef.current?.focus(), 100);
     }
-  };
+  }, [inputValue, isProcessing, messages, shortName]);
 
   const handleKeyPress = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -241,9 +205,9 @@ function CollectKioskView({ shortName }) {
           </div>
         )}
 
-        {messages.map((msg, idx) => (
+        {messages.map((msg) => (
           <div
-            key={idx}
+            key={msg.id}
             className={`kiosk-message kiosk-message-${msg.role}`}
           >
             <div className="kiosk-message-bubble">
@@ -293,7 +257,7 @@ function CollectKioskView({ shortName }) {
           className="kiosk-input"
           value={inputValue}
           onChange={e => setInputValue(e.target.value)}
-          onKeyPress={handleKeyPress}
+          onKeyDown={handleKeyPress}
           placeholder="Type your message… (Enter to send, Shift+Enter for new line)"
           rows={3}
           disabled={isProcessing}

@@ -225,6 +225,38 @@ class ChatService:
         """Get the current LLM provider type (openai or claude)."""
         return self._processor.provider_type
 
+    def _build_collection_prefix(self, short_name: str) -> Optional[str]:
+        """Resolve an AKC short_name to its trusted system prompt prefix server-side."""
+        try:
+            result = self._graph_service.search_graph(
+                query="", node_types=["ActiveKnowledgeCollection"], limit=500
+            )
+            for node in result.get("nodes", []):
+                meta = node.get("metadata") or {}
+                if meta.get("short_name") == short_name:
+                    lines = ["COLLECTION MODE INSTRUCTIONS:"]
+                    if meta.get("prompt"):
+                        lines.append(meta["prompt"])
+                        lines.append("")
+                    perms = meta.get("node_type_permissions") or {}
+                    perm_entries = [(t, ops) for t, ops in perms.items()]
+                    if perm_entries:
+                        lines.append("PERMITTED OPERATIONS:")
+                        for node_type, ops in perm_entries:
+                            allowed = [op for op in ("create", "update", "delete") if ops.get(op)]
+                            if allowed:
+                                lines.append(f"- {node_type}: {', '.join(allowed)}")
+                        lines.append("")
+                        lines.append(
+                            "IMPORTANT: Only perform operations that are explicitly listed as "
+                            "permitted above. Do not create, update, or delete node types that "
+                            "are not listed, or perform operations not permitted for a given type."
+                        )
+                    return "\n".join(lines)
+        except Exception:
+            pass
+        return None
+
     def process_message(
         self,
         messages: List[Dict[str, Any]],
@@ -234,6 +266,7 @@ class ChatService:
         expert_agent_id: Optional[str] = None,
         skills_context: Optional[str] = None,
         system_prompt_prefix: Optional[str] = None,
+        collection_short_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Process a chat message and return the response.
@@ -262,6 +295,12 @@ class ChatService:
             - toolUsed: Name of the last tool used (if any)
             - toolResult: Result from the tool (if any)
         """
+        # Server-side collection resolution takes precedence over any client-supplied prefix
+        if collection_short_name:
+            effective_prefix = self._build_collection_prefix(collection_short_name)
+        else:
+            effective_prefix = system_prompt_prefix
+
         self._current_federation_depth = federation_depth
         try:
             expert_context = self._build_expert_context(expert_agent_id) if expert_agent_id else None
@@ -279,11 +318,11 @@ class ChatService:
                         " — expert may not be registered",
                         expert_agent_id,
                     )
-            # Combine system prompt prefix and expert context
-            if system_prompt_prefix and expert_context:
-                extra_context = f"{system_prompt_prefix}\n\n{expert_context}"
+            # Combine collection/system prefix and expert context
+            if effective_prefix and expert_context:
+                extra_context = f"{effective_prefix}\n\n{expert_context}"
             else:
-                extra_context = system_prompt_prefix or expert_context
+                extra_context = effective_prefix or expert_context
 
             # Merge Skill-node instructions into extra_context (single request only).
             if skills_context:

@@ -26,9 +26,10 @@ import secrets
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable
 
+from fastapi import FastAPI, Path as FastAPIPath
+
 logger = logging.getLogger(__name__)
 
-from fastapi import FastAPI
 from fastapi.responses import JSONResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -734,9 +735,12 @@ def create_app(
 
     @app.get("/collect/{short_name}")
     @app.get("/collect/{short_name}/")
-    async def collect_redirect(short_name: str) -> RedirectResponse:
+    async def collect_redirect(
+        short_name: str = FastAPIPath(..., pattern=r'^[a-z0-9][a-z0-9-]{0,98}[a-z0-9]$|^[a-z0-9]$')
+    ) -> RedirectResponse:
         """Redirect collect kiosk URL to the web app in collect mode."""
-        return RedirectResponse(url=f"/web/?collect={short_name}", status_code=302)
+        from urllib.parse import quote
+        return RedirectResponse(url=f"/web/?collect={quote(short_name, safe='')}", status_code=302)
 
     @app.get("/collect")
     async def collect_root_redirect() -> RedirectResponse:

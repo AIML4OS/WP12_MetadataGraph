@@ -3,6 +3,8 @@ import { ClipboardFill } from 'react-bootstrap-icons';
 import useGraphStore from '../store/graphStore';
 import './CreateSubscriptionDialog.css'; // Reuse the same styles
 
+const EXCLUDED_TYPES = ['SavedView', 'VisualizationView', 'EventSubscription', 'Agent', 'ActiveKnowledgeCollection'];
+
 /**
  * Dialog for creating/editing an ActiveKnowledgeCollection node.
  *
@@ -34,9 +36,6 @@ export default function CreateActiveKnowledgeCollectionDialog({ onClose, onSave,
   // Copy feedback states
   const [copiedKiosk, setCopiedKiosk] = useState(false);
   const [copiedFull, setCopiedFull] = useState(false);
-
-  // Excluded system types — these won't appear in the permissions table
-  const EXCLUDED_TYPES = ['SavedView', 'VisualizationView', 'EventSubscription', 'Agent', 'ActiveKnowledgeCollection'];
 
   // All domain node types from schema (excluding system types listed above)
   const nodeTypes = schema?.node_types
